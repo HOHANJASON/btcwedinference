@@ -164,18 +164,15 @@ class EnhancedCryptoAnalyzer:
         fig.update_layout(height=800, title_text=f'{self.ticker} 模型性能分析 (RMSE: {rmse:.2f}, MAE: {mae:.2f})', showlegend=True)
         return fig
 
-# Streamlit 應用程序代碼
 st.set_page_config(page_title="加密貨幣分析器", page_icon="📊", layout="wide")
 
 st.title("加密貨幣分析與預測")
 
-# 側邊欄
 st.sidebar.header("設置")
 ticker = st.sidebar.selectbox("選擇加密貨幣", ["BTC-USD", "ETH-USD"])
 years = st.sidebar.slider("歷史數據年數", 1, 10, 5)
 future_days = st.sidebar.slider("預測天數", 7, 90, 30)
 
-# 選擇要顯示的圖表
 st.sidebar.header("選擇要顯示的圖表")
 show_price_prediction = st.sidebar.checkbox("價格預測", value=True)
 show_price_ma = st.sidebar.checkbox("價格與移動平均線", value=True)
@@ -197,12 +194,10 @@ if st.sidebar.button("開始分析"):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    # 更新進度
     def update_progress(progress):
         progress_bar.progress(progress)
         status_text.text(f"進度: {progress}%")
 
-    # 訓練模型
     status_text.text("正在訓練模型...")
     update_progress(10)
     analyzer.train_model(epochs=100)
@@ -213,7 +208,6 @@ if st.sidebar.button("開始分析"):
     future_prices = analyzer.predict_future_price(days=future_days)
     update_progress(70)
 
-    # 準備數據
     status_text.text("正在準備數據...")
     _, _, df = analyzer.prepare_data()
     update_progress(80)
@@ -223,7 +217,6 @@ if st.sidebar.button("開始分析"):
     fng_data = analyzer.get_fear_and_greed_index()
     update_progress(90)
 
-    # 創建圖表
     status_text.text("正在創建圖表...")
     fig = make_subplots(rows=sum([show_price_prediction, show_price_ma, show_volume, show_rsi, show_macd, show_fear_greed]), 
                         cols=1, shared_xaxes=True, vertical_spacing=0.05)
@@ -271,16 +264,14 @@ if st.sidebar.button("開始分析"):
     fig.update_layout(height=300*row, title_text=f"{ticker} 綜合分析", showlegend=True)
     st.plotly_chart(fig, use_container_width=True)
 
-    # 顯示預測結果
     st.header("價格預測")
     st.write(f"{future_days}天後的預測價格: ${future_prices[-1]:.2f}")
 
-    # 顯示模型性能
     st.header("模型性能")
     performance_fig = analyzer.visualize_model_performance()
     st.plotly_chart(performance_fig, use_container_width=True)
 
     update_progress(100)
-    status_text.text("分析完成!")
+    status_text.text("分析完成")
 
-st.sidebar.info("本應用程序使用歷史數據訓練LSTM模型來預測加密貨幣價格。請注意，預測結果僅供參考，不構成投資建議。")
+st.sidebar.info("自歷史數據訓練LSTM模型來預測加密貨幣價格。輸錢別怪我結果僅供參考。")
