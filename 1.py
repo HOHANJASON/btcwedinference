@@ -190,7 +190,6 @@ def get_analyzer(ticker, years):
 analyzer = get_analyzer(ticker, years)
 
 if st.sidebar.button("開始分析"):
-    # 進度條
     progress_bar = st.progress(0)
     status_text = st.empty()
 
@@ -202,8 +201,7 @@ if st.sidebar.button("開始分析"):
     update_progress(10)
     analyzer.train_model(epochs=100)
     update_progress(50)
-
-    # 預測未來價格
+    
     status_text.text("正在預測未來價格...")
     future_prices = analyzer.predict_future_price(days=future_days)
     update_progress(70)
@@ -212,7 +210,6 @@ if st.sidebar.button("開始分析"):
     _, _, df = analyzer.prepare_data()
     update_progress(80)
 
-    # 獲取恐懼&貪婪指數
     status_text.text("正在獲取恐懼&貪婪指數...")
     fng_data = analyzer.get_fear_and_greed_index()
     update_progress(90)
@@ -275,3 +272,5 @@ if st.sidebar.button("開始分析"):
     status_text.text("分析完成")
 
 st.sidebar.info("自歷史數據訓練LSTM模型來預測加密貨幣價格。輸錢別怪我結果僅供參考。")
+
+#代碼我開源了 你們可以研究遺下優化方式 我現階段在想有沒有甚麼算法能平替LSTM 這模型速度太慢了
