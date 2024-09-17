@@ -19,8 +19,8 @@ class EnhancedCryptoAnalyzer:
         self.intraday_data = None
         self.model = None
         self.scaler = MinMaxScaler()
-        self.close_scaler = MinMaxScaler()
-
+        self.close_scaler = MinMaxScaler() #首
+        
     def fetch_data(self, years=10):
         crypto = yf.Ticker(self.ticker)
         self.data = crypto.history(period=f"{years}y", interval="1d")
@@ -38,7 +38,7 @@ class EnhancedCryptoAnalyzer:
         df['Volatility'] = df['Returns'].rolling(window=30).std()
         df['RSI'] = self.calculate_rsi(df['Close'])
         df['MACD'], df['Signal'] = self.calculate_macd(df['Close'])
-        df['Support'] = self.calculate_support(df['Close'])
+        df['Support'] = self.calculate_support(df['Close'])  #缺少附加偵查項 代檢
         
         df = df.dropna()
         
@@ -71,7 +71,7 @@ class EnhancedCryptoAnalyzer:
         exp2 = prices.ewm(span=slow, adjust=False).mean()
         macd = exp1 - exp2
         signal_line = macd.ewm(span=signal, adjust=False).mean()
-        return macd, signal_line
+        return macd, signal_line #4/sep/24
 
     @staticmethod
     def calculate_support(prices, window=20):
@@ -162,7 +162,7 @@ class EnhancedCryptoAnalyzer:
         fig.add_hline(y=0, line_dash="dash", line_color="red", row=2, col=1)
         
         fig.update_layout(height=800, title_text=f'{self.ticker} 模型性能分析 (RMSE: {rmse:.2f}, MAE: {mae:.2f})', showlegend=True)
-        return fig
+        return fig #new build
 
 st.set_page_config(page_title="加密貨幣分析器", page_icon="📊", layout="wide")
 
