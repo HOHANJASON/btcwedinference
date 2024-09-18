@@ -164,22 +164,22 @@ class EnhancedCryptoAnalyzer:
         fig.update_layout(height=800, title_text=f'{self.ticker} 模型性能分析 (RMSE: {rmse:.2f}, MAE: {mae:.2f})', showlegend=True)
         return fig #new build
 
-st.set_page_config(page_title="加密貨幣分析器", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Crypto Analyzer | 加密貨幣分析器", page_icon="📊", layout="wide")
 
-st.title("加密貨幣分析與預測")
+st.title("Cryptocurrency Analysis and Prediction | 加密貨幣分析與預測")
 
-st.sidebar.header("設置")
-ticker = st.sidebar.selectbox("選擇加密貨幣", ["BTC-USD", "ETH-USD"])
-years = st.sidebar.slider("歷史數據年數", 1, 10, 5)
-future_days = st.sidebar.slider("預測天數", 7, 90, 30)
+st.sidebar.header("Settings | 設置")
+ticker = st.sidebar.selectbox("Select Cryptocurrency | 選擇加密貨幣", ["BTC-USD", "ETH-USD"])
+years = st.sidebar.slider("Years of Historical Data | 歷史數據年數", 1, 10, 5)
+future_days = st.sidebar.slider("Days to Predict | 預測天數", 7, 90, 30)
 
-st.sidebar.header("選擇要顯示的圖表")
-show_price_prediction = st.sidebar.checkbox("價格預測", value=True)
-show_price_ma = st.sidebar.checkbox("價格與移動平均線", value=True)
-show_volume = st.sidebar.checkbox("交易量", value=True)
+st.sidebar.header("Select Charts to Display | 選擇要顯示的圖表")
+show_price_prediction = st.sidebar.checkbox("Price Prediction | 價格預測", value=True)
+show_price_ma = st.sidebar.checkbox("Price and Moving Averages | 價格與移動平均線", value=True)
+show_volume = st.sidebar.checkbox("Trading Volume | 交易量", value=True)
 show_rsi = st.sidebar.checkbox("RSI", value=True)
 show_macd = st.sidebar.checkbox("MACD", value=True)
-show_fear_greed = st.sidebar.checkbox("恐懼&貪婪指數", value=True)
+show_fear_greed = st.sidebar.checkbox("Fear & Greed Index | 恐懼&貪婪指數", value=True)
 
 @st.cache_resource
 def get_analyzer(ticker, years):
@@ -189,55 +189,55 @@ def get_analyzer(ticker, years):
 
 analyzer = get_analyzer(ticker, years)
 
-if st.sidebar.button("開始分析"):
+if st.sidebar.button("Start Analysis | 開始分析"):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
     def update_progress(progress):
         progress_bar.progress(progress)
-        status_text.text(f"進度: {progress}%")
+        status_text.text(f"Progress | 進度: {progress}%")
 
-    status_text.text("正在訓練模型...")
+    status_text.text("Training model... | 正在訓練模型...")
     update_progress(10)
     analyzer.train_model(epochs=100)
     update_progress(50)
     
-    status_text.text("正在預測未來價格...")
+    status_text.text("Predicting future prices... | 正在預測未來價格...")
     future_prices = analyzer.predict_future_price(days=future_days)
     update_progress(70)
 
-    status_text.text("正在準備數據...")
+    status_text.text("Preparing data... | 正在準備數據...")
     _, _, df = analyzer.prepare_data()
     update_progress(80)
 
-    status_text.text("正在獲取恐懼&貪婪指數...")
+    status_text.text("Fetching Fear & Greed Index... | 正在獲取恐懼&貪婪指數...")
     fng_data = analyzer.get_fear_and_greed_index()
     update_progress(90)
 
-    status_text.text("正在創建圖表...")
+    status_text.text("Creating charts... | 正在創建圖表...")
     fig = make_subplots(rows=sum([show_price_prediction, show_price_ma, show_volume, show_rsi, show_macd, show_fear_greed]), 
                         cols=1, shared_xaxes=True, vertical_spacing=0.05)
     
     row = 1
 
     if show_price_prediction:
-        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='歷史收盤價'), row=row, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Historical Close | 歷史收盤價'), row=row, col=1)
         last_date = df.index[-1]
         future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=len(future_prices))
-        fig.add_trace(go.Scatter(x=future_dates, y=future_prices, name='預測價格', line=dict(color='red', dash='dash')), row=row, col=1)
-        fig.update_yaxes(title_text="價格", row=row, col=1)
+        fig.add_trace(go.Scatter(x=future_dates, y=future_prices, name='Predicted Price | 預測價格', line=dict(color='red', dash='dash')), row=row, col=1)
+        fig.update_yaxes(title_text="Price | 價格", row=row, col=1)
         row += 1
 
     if show_price_ma:
-        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='收盤價'), row=row, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['MA7'], name='7日MA'), row=row, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['MA30'], name='30日MA'), row=row, col=1)
-        fig.update_yaxes(title_text="價格", row=row, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Close Price | 收盤價'), row=row, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA7'], name='7-day MA | 7日MA'), row=row, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['MA30'], name='30-day MA | 30日MA'), row=row, col=1)
+        fig.update_yaxes(title_text="Price | 價格", row=row, col=1)
         row += 1
 
     if show_volume:
-        fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='交易量'), row=row, col=1)
-        fig.update_yaxes(title_text="交易量", row=row, col=1)
+        fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='Trading Volume | 交易量'), row=row, col=1)
+        fig.update_yaxes(title_text="Volume | 交易量", row=row, col=1)
         row += 1
 
     if show_rsi:
@@ -255,22 +255,23 @@ if st.sidebar.button("開始分析"):
 
     if show_fear_greed:
         fig.add_trace(go.Scatter(x=pd.to_datetime(fng_data['timestamp'], unit='s'), 
-                                 y=fng_data['value'].astype(float), name='F&G Index'), row=row, col=1)
-        fig.update_yaxes(title_text="恐懼&貪婪指數", row=row, col=1)
+                                 y=fng_data['value'].astype(float), name='F&G Index | 恐懼&貪婪指數'), row=row, col=1)
+        fig.update_yaxes(title_text="Fear & Greed Index | 恐懼&貪婪指數", row=row, col=1)
 
-    fig.update_layout(height=300*row, title_text=f"{ticker} 綜合分析", showlegend=True)
+    fig.update_layout(height=300*row, title_text=f"{ticker} Comprehensive Analysis | 綜合分析", showlegend=True)
     st.plotly_chart(fig, use_container_width=True)
 
-    st.header("價格預測")
-    st.write(f"{future_days}天後的預測價格: ${future_prices[-1]:.2f}")
+    st.header("Price Prediction | 價格預測")
+    st.write(f"Predicted price after {future_days} days | {future_days}天後的預測價格: ${future_prices[-1]:.2f}")
 
-    st.header("模型性能")
+    st.header("Model Performance | 模型性能")
     performance_fig = analyzer.visualize_model_performance()
     st.plotly_chart(performance_fig, use_container_width=True)
 
     update_progress(100)
-    status_text.text("分析完成")
+    status_text.text("Analysis complete | 分析完成")
 
-st.sidebar.info("自歷史數據訓練LSTM模型來預測加密貨幣價格。輸錢別怪我結果僅供參考。")
+st.sidebar.info("This app uses an LSTM model trained on historical data to predict cryptocurrency prices. Results are for reference only. | 自歷史數據訓練LSTM模型來預測加密貨幣價格。輸錢別怪我結果僅供參考。")
+
 
 #代碼我開源了 你們可以研究遺下優化方式 我現階段在想有沒有甚麼算法能平替LSTM 這模型速度太慢了
