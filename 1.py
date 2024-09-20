@@ -11,15 +11,18 @@ from sklearn.model_selection import TimeSeriesSplit
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import requests
+import tensorflow as tf
+import torch
 
 class EnhancedCryptoAnalyzer:
-    def __init__(self, ticker):
+    def __init__(self, ticker, use_local_computation=False):
         self.ticker = ticker
         self.data = None
         self.intraday_data = None
         self.model = None
         self.scaler = MinMaxScaler()
-        self.close_scaler = MinMaxScaler() #首
+        self.close_scaler = MinMaxScaler()
+        self.use_local_computation = use_local_computation #首
         
     def fetch_data(self, years=10):
         crypto = yf.Ticker(self.ticker)
@@ -85,19 +88,24 @@ class EnhancedCryptoAnalyzer:
 
     def build_model(self, input_shape):
         model = Sequential([
-            LSTM(100, return_sequences=True, input_shape=input_shape),
+            LSTM(50, return_sequences=True, input_shape=input_shape), 
             Dropout(0.2),
-            LSTM(100, return_sequences=True),
-            Dropout(0.2),
-            LSTM(100),
+            LSTM(50),  
             Dropout(0.2),
             Dense(1)
         ])
         model.compile(optimizer=Adam(learning_rate=0.001), loss='mean_squared_error')
-        return model
-
-    def train_model(self, epochs=100, batch_size=32):
+        return model #ls lstm
+    
+    def train_model(self, epochs=100, batch_size=32, use_local=False):
         X, y, _ = self.prepare_data()
+        
+        if use_local:
+            device = 'cpu'
+            print("正在使用本地算力進行推導...")
+        else:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            print("正在使用雲端或GPU進行推導...")
         
         tscv = TimeSeriesSplit(n_splits=5)
         
@@ -105,7 +113,7 @@ class EnhancedCryptoAnalyzer:
             X_train, X_val = X[train_index], X[val_index]
             y_train, y_val = y[train_index], y[val_index]
             
-            self.model = self.build_model((X_train.shape[1], X_train.shape[2]))
+            self.model = self.build_model((X_train.shape[1], X_train.shape[2])) #new
             
             early_stopping = EarlyStopping(patience=10, restore_best_weights=True)
             reduce_lr = ReduceLROnPlateau(factor=0.2, patience=5)
@@ -116,8 +124,9 @@ class EnhancedCryptoAnalyzer:
                 batch_size=batch_size, 
                 validation_data=(X_val, y_val),
                 callbacks=[early_stopping, reduce_lr],
-                verbose=0
+                verbose=1
             )
+
 
     def predict_future_price(self, days=30):
         if self.model is None:
@@ -167,6 +176,8 @@ class EnhancedCryptoAnalyzer:
 st.set_page_config(page_title="Crypto Analyzer | 加密貨幣分析器", page_icon="📊", layout="wide")
 
 st.title("Cryptocurrency Analysis and Prediction | 加密貨幣分析與預測")
+
+use_local = st.checkbox("是否使用本地算力進行推導？")
 
 st.sidebar.header("Settings | 設置")
 ticker = st.sidebar.selectbox("Select Cryptocurrency | 選擇加密貨幣", ["BTC-USD", "ETH-USD"])
@@ -272,6 +283,3 @@ if st.sidebar.button("Start Analysis | 開始分析"):
     status_text.text("Analysis complete | 分析完成")
 
 st.sidebar.info("This app uses an LSTM model trained on historical data to predict cryptocurrency prices. Results are for reference only. | 自歷史數據訓練LSTM模型來預測加密貨幣價格。輸錢別怪我結果僅供參考。")
-
-
-#代碼我開源了 你們可以研究遺下優化方式 我現階段在想有沒有甚麼算法能平替LSTM 這模型速度太慢了
