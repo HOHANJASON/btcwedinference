@@ -6,3 +6,4 @@ scikit-learn
 tensorflow
 plotly
 requests
+torch
