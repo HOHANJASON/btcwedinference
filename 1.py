@@ -12,6 +12,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import requests
 import tensorflow as tf
+import torch
 
 class EnhancedCryptoAnalyzer:
     def __init__(self, ticker, use_local_computation=False):
@@ -23,13 +24,11 @@ class EnhancedCryptoAnalyzer:
         self.close_scaler = MinMaxScaler()
         self.use_local_computation = use_local_computation #首
         
-    def fetch_data(self, years=10):
-        crypto = yf.Ticker(self.ticker)
-        self.data = crypto.history(period=f"{years}y", interval="1d")
-        
+    def fetch_data(self, years=5):
         end_date = pd.Timestamp.now()
-        start_date = end_date - pd.Timedelta(days=7)
-        self.intraday_data = crypto.history(start=start_date, end=end_date, interval="4h")
+        start_date = end_date - pd.DateOffset(years=years)
+        self.data = yf.download(self.ticker, start=start_date, end=end_date)
+        return self.data
 
     def prepare_data(self, sequence_length=60):
         df = self.data.copy()
@@ -40,12 +39,10 @@ class EnhancedCryptoAnalyzer:
         df['Volatility'] = df['Returns'].rolling(window=30).std()
         df['RSI'] = self.calculate_rsi(df['Close'])
         df['MACD'], df['Signal'] = self.calculate_macd(df['Close'])
-        df['Support'] = self.calculate_support(df['Close'])  #缺少附加偵查項 代檢
         
         df = df.dropna()
         
-        features = ['Close', 'Volume', 'Returns', 'MA7', 'MA30', 'Volatility', 'RSI', 'MACD', 'Signal', 'Support']
-        target = 'Close'
+        features = ['Close', 'Volume', 'Returns', 'MA7', 'MA30', 'Volatility', 'RSI', 'MACD', 'Signal']
         
         dataset = df[features].values
         scaled_data = self.scaler.fit_transform(dataset)
@@ -55,7 +52,7 @@ class EnhancedCryptoAnalyzer:
         X, y = [], []
         for i in range(sequence_length, len(scaled_data)):
             X.append(scaled_data[i-sequence_length:i])
-            y.append(scaled_data[i, features.index(target)])
+            y.append(scaled_data[i, 0])  # 0 index corresponds to 'Close' price
         
         return np.array(X), np.array(y), df
 
@@ -87,47 +84,35 @@ class EnhancedCryptoAnalyzer:
 
     def build_model(self, input_shape):
         model = Sequential([
-            LSTM(50, return_sequences=True, input_shape=input_shape),  # 減少單元數
+            LSTM(50, return_sequences=True, input_shape=input_shape), 
             Dropout(0.2),
-            LSTM(50),  # 減少LSTM層
+            LSTM(50),  
             Dropout(0.2),
             Dense(1)
-        ])
+        ])   #low lstm y low unit
         model.compile(optimizer=Adam(learning_rate=0.001), loss='mean_squared_error')
         return model
     
-    def train_model(self, epochs=50, batch_size=64):
+    def train_model(self, epochs=50, batch_size=32):
         X, y, _ = self.prepare_data()
         
-        tscv = TimeSeriesSplit(n_splits=5)
-
-        # 選擇是否在本地算力或雲端進行推導
-        device = '/device:GPU:0' if self.use_local_computation else '/cpu:0'
+        self.model = Sequential([
+            LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
+            Dropout(0.2),
+            LSTM(50),
+            Dropout(0.2),
+            Dense(1)
+        ])
+        self.model.compile(optimizer=Adam(learning_rate=0.001), loss='mean_squared_error')
         
-        with tf.device(device):  # 根據選項選擇設備
-            for train_index, val_index in tscv.split(X):
-                X_train, X_val = X[train_index], X[val_index]
-                y_train, y_val = y[train_index], y[val_index]
-                
-                self.model = self.build_model((X_train.shape[1], X_train.shape[2]))
-                
-                early_stopping = EarlyStopping(patience=5, restore_best_weights=True)
-                reduce_lr = ReduceLROnPlateau(factor=0.2, patience=3)
-                
-                self.model.fit(
-                    X_train, y_train, 
-                    epochs=epochs, 
-                    batch_size=batch_size, 
-                    validation_data=(X_val, y_val),
-                    callbacks=[early_stopping, reduce_lr],
-                    verbose=1
-                )
-                
+        self.model.fit(X, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, verbose=0)
+
     def predict_future_price(self, days=30):
         if self.model is None:
             raise ValueError("Model has not been trained yet. Call train_model() first.")
         
-        last_sequence = self.prepare_data()[0][-1]
+        X, _, _ = self.prepare_data()
+        last_sequence = X[-1]
         current_batch = last_sequence.reshape((1, last_sequence.shape[0], last_sequence.shape[1]))
         
         future_prices = []
@@ -136,12 +121,11 @@ class EnhancedCryptoAnalyzer:
             current_pred = self.model.predict(current_batch)[0]
             future_prices.append(current_pred)
             current_batch = np.roll(current_batch, -1, axis=1)
-            current_batch[0, -1, 0] = current_pred
+            current_batch[0, -1] = current_pred
         
         future_prices = np.array(future_prices).reshape(-1, 1)
         
         return self.close_scaler.inverse_transform(future_prices).flatten()
-
 
     def visualize_model_performance(self):
         X, y, df = self.prepare_data()
@@ -173,6 +157,8 @@ st.set_page_config(page_title="Crypto Analyzer | 加密貨幣分析器", page_ic
 
 st.title("Cryptocurrency Analysis and Prediction | 加密貨幣分析與預測")
 
+use_local = st.checkbox("是否使用本地算力進行推導？")
+
 st.sidebar.header("Settings | 設置")
 ticker = st.sidebar.selectbox("Select Cryptocurrency | 選擇加密貨幣", ["BTC-USD", "ETH-USD"])
 years = st.sidebar.slider("Years of Historical Data | 歷史數據年數", 1, 10, 5)
@@ -198,6 +184,12 @@ if st.sidebar.button("Start Analysis | 開始分析"):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
+    with st.spinner("Fetching and processing data..."):
+        df = analyzer.fetch_data(years=years)
+        analyzer.train_model()
+        future_prices = analyzer.predict_future_price(days=future_days)
+
+    fig = make_subplots(rows=1, cols=1, shared_xaxes=True)
     def update_progress(progress):
         progress_bar.progress(progress)
         status_text.text(f"Progress | 進度: {progress}%")
@@ -277,7 +269,3 @@ if st.sidebar.button("Start Analysis | 開始分析"):
     status_text.text("Analysis complete | 分析完成")
 
 st.sidebar.info("This app uses an LSTM model trained on historical data to predict cryptocurrency prices. Results are for reference only. | 自歷史數據訓練LSTM模型來預測加密貨幣價格。輸錢別怪我結果僅供參考。")
-
-
-#代碼我開源了 你們可以研究遺下優化方式 我現階段在想有沒有甚麼算法能平替LSTM 這模型速度太慢了
-#我之後會開心的網頁 以github為主 
