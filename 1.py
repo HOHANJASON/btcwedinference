@@ -142,6 +142,7 @@ class EnhancedCryptoAnalyzer:
         
         return self.close_scaler.inverse_transform(future_prices).flatten()
 
+
     def visualize_model_performance(self):
         X, y, df = self.prepare_data()
         predictions = self.model.predict(X).flatten()
