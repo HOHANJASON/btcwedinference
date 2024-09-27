@@ -3,15 +3,13 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.models import Sequential, Model, load_model
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional, Input, Attention, GlobalAveragePooling1D
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from sklearn.model_selection import TimeSeriesSplit
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
-import requests
-import tensorflow as tf
+import talib as ta
 
 class EnhancedCryptoAnalyzer:
     def __init__(self, ticker):
@@ -30,16 +28,19 @@ class EnhancedCryptoAnalyzer:
     def prepare_data(self, sequence_length=60):
         df = self.data.copy()
         
-        df['Returns'] = df['Close'].pct_change()
+        df['log_returns'] = np.log(df['Close'] / df['Close'].shift(1))
         df['MA7'] = df['Close'].rolling(window=7).mean()
         df['MA30'] = df['Close'].rolling(window=30).mean()
-        df['Volatility'] = df['Returns'].rolling(window=30).std()
-        df['RSI'] = self.calculate_rsi(df['Close'])
-        df['MACD'], df['Signal'] = self.calculate_macd(df['Close'])
+        df['Volatility'] = df['log_returns'].rolling(window=30).std()
+        df['RSI'] = ta.RSI(df['Close'])
+        df['MACD'], df['Signal'], _ = ta.MACD(df['Close'])
+        df['upper'], df['middle'], df['lower'] = ta.BBANDS(df['Close'])
+        df['ATR'] = ta.ATR(df['High'], df['Low'], df['Close'])
+        df['OBV'] = ta.OBV(df['Close'], df['Volume'])
         
         df = df.dropna()
         
-        features = ['Close', 'Volume', 'Returns', 'MA7', 'MA30', 'Volatility', 'RSI', 'MACD', 'Signal']
+        features = ['Close', 'Volume', 'log_returns', 'MA7', 'MA30', 'Volatility', 'RSI', 'MACD', 'Signal', 'upper', 'lower', 'ATR', 'OBV']
         
         dataset = df[features].values
         scaled_data = self.scaler.fit_transform(dataset)
@@ -51,51 +52,46 @@ class EnhancedCryptoAnalyzer:
         
         return np.array(X), np.array(y), df
 
-    @staticmethod
-    def calculate_rsi(prices, period=14):
-        delta = prices.diff()
-        gain = delta.where(delta > 0, 0).rolling(window=period).mean()
-        loss = -delta.where(delta < 0, 0).rolling(window=period).mean()
-        rs = gain / loss
-        return 100 - (100 / (1 + rs))
-
-    @staticmethod
-    def calculate_macd(prices, slow=26, fast=12, signal=9):
-        exp1 = prices.ewm(span=fast, adjust=False).mean()
-        exp2 = prices.ewm(span=slow, adjust=False).mean()
-        macd = exp1 - exp2
-        signal_line = macd.ewm(span=signal, adjust=False).mean()
-        return macd, signal_line
-
-    @st.cache_resource
     def build_model(self, input_shape):
-        model = Sequential([
-            LSTM(64, return_sequences=True, input_shape=input_shape),
-            Dropout(0.2),
-            LSTM(64),
-            Dropout(0.2),
-            Dense(32, activation='relu'),
-            Dense(1)
-        ])
+        input_layer = Input(shape=input_shape)
+        
+        lstm_out = Bidirectional(LSTM(64, return_sequences=True))(input_layer)
+        lstm_out = Dropout(0.2)(lstm_out)
+        lstm_out = Bidirectional(LSTM(64, return_sequences=True))(lstm_out)
+        lstm_out = Dropout(0.2)(lstm_out)
+        
+        attention_out = Attention()([lstm_out, lstm_out])
+        
+        global_average = GlobalAveragePooling1D()(attention_out)
+        
+        dense_out = Dense(32, activation='relu')(global_average)
+        output = Dense(1)(dense_out)
+        
+        model = Model(inputs=input_layer, outputs=output)
         model.compile(optimizer=Adam(learning_rate=0.001), loss='mean_squared_error')
+        
         return model
-    
-    def train_model(self, epochs=50, batch_size=32):
+
+    def train_model(self, epochs=100, batch_size=32):
         X, y, _ = self.prepare_data()
         
         self.model = self.build_model((X.shape[1], X.shape[2]))
         
-        early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+        early_stopping = EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True)
         reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.0001)
+        checkpoint = ModelCheckpoint('best_model.h5', save_best_only=True, monitor='val_loss', mode='min')
         
         history = self.model.fit(
             X, y,
             epochs=epochs,
             batch_size=batch_size,
             validation_split=0.2,
-            callbacks=[early_stopping, reduce_lr],
-            verbose=0
+            callbacks=[early_stopping, reduce_lr, checkpoint],
+            verbose=1
         )
+        
+        # Load the best model
+        self.model = load_model('best_model.h5')
         return history
 
     def predict_future_price(self, days=30):
@@ -112,18 +108,20 @@ class EnhancedCryptoAnalyzer:
             current_pred = self.model.predict(current_batch, verbose=0)[0]
             future_prices.append(current_pred)
             
+            # Update the current batch for the next prediction
             new_row = np.zeros((1, current_batch.shape[2]))
-            new_row[0, 0] = current_pred
+            new_row[0, 0] = current_pred  # Assuming the first feature is the closing price
             current_batch = np.roll(current_batch, -1, axis=1)
             current_batch[0, -1] = new_row
         
         future_prices = np.array(future_prices).reshape(-1, 1)
         
-        last_original_price = df['Close'].iloc[-1]
-        first_predicted_price = self.scaler.inverse_transform(future_prices)[0][0]
-        scaling_factor = last_original_price / first_predicted_price
+        # Inverse transform the predictions
+        last_original_features = self.scaler.inverse_transform(X[-1][-1].reshape(1, -1))
+        future_features = np.tile(last_original_features, (len(future_prices), 1))
+        future_features[:, 0] = future_prices.flatten()
         
-        adjusted_future_prices = self.scaler.inverse_transform(future_prices).flatten() * scaling_factor
+        adjusted_future_prices = self.scaler.inverse_transform(future_features)[:, 0]
         
         return adjusted_future_prices
 
@@ -143,8 +141,8 @@ class EnhancedCryptoAnalyzer:
                             vertical_spacing=0.05, 
                             subplot_titles=(f'{self.ticker} Model Performance | 模型性能', 'Prediction Error | 預測誤差'))
         
-        fig.add_trace(go.Scatter(x=df.index[-len(y):], y=actual_prices, name='Actual Price | 實際價格'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index[-len(predictions):], y=predicted_prices, name='Predicted Price | 預測價格'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index[-len(y):], y=actual_prices, name='Actual Price | 實際價格', line=dict(color='blue')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index[-len(predictions):], y=predicted_prices, name='Predicted Price | 預測價格', line=dict(color='red')), row=1, col=1)
         
         errors = actual_prices - predicted_prices
         fig.add_trace(go.Scatter(x=df.index[-len(errors):], y=errors, name='Prediction Error | 預測誤差'), row=2, col=1)
@@ -152,8 +150,8 @@ class EnhancedCryptoAnalyzer:
         
         fig.update_layout(height=800, title_text=f'{self.ticker} Model Performance Analysis | 模型性能分析 (RMSE: {rmse:.2f}, MAE: {mae:.2f})', showlegend=True)
         return fig
-
-@st.cache_resource
+        
+        @st.cache_resource
 def get_analyzer(ticker):
     return EnhancedCryptoAnalyzer(ticker)
 
@@ -195,7 +193,7 @@ if st.sidebar.button("Start Analysis | 開始分析"):
                             subplot_titles=("Price Prediction | 價格預測", "Trading Volume | 交易量", "RSI"))
 
         # Price Prediction | 價格預測
-        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Historical Close | 歷史收盤價'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Historical Close | 歷史收盤價', line=dict(color='blue')), row=1, col=1)
         last_date = df.index[-1]
         future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=len(future_prices))
         fig.add_trace(go.Scatter(x=future_dates, y=future_prices, name='Predicted Price | 預測價格', line=dict(color='red', dash='dash')), row=1, col=1)
@@ -221,4 +219,4 @@ if st.sidebar.button("Start Analysis | 開始分析"):
         update_progress(100)
         status_text.text("Analysis complete | 分析完成")
 
-st.sidebar.info("This app uses an LSTM model trained on historical data to predict cryptocurrency prices. Results are for reference only. | 本應用程序使用基於歷史數據訓練的LSTM模型來預測加密貨幣價格。結果僅供參考。")
+st.sidebar.info("This app uses an advanced LSTM model with attention mechanism trained on historical data to predict cryptocurrency prices. Results are for reference only. | 本應用程序使用基於歷史數據訓練的高級LSTM模型和注意力機制來預測加密貨幣價格。結果僅供參考。")
