@@ -272,5 +272,5 @@ if st.sidebar.button("Start Analysis | 開始分析"):
     update_progress(100)
     status_text.text("Analysis complete | 分析完成")
 
-st.sidebar.info("This app uses an LSTM model trained on historical data to predict cryptocurrency prices. Results are for reference only. | 自歷史數據訓練LSTM模型來預測加密貨幣價格。輸錢別怪我結果僅供參考。")
+st.sidebar.info("看看就好")
 
